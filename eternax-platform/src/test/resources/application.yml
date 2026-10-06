@@ -1,0 +1,8 @@
+spring:
+  application.name: platform-test
+  flyway.locations: classpath:db/platform
+  kafka.bootstrap-servers: localhost:1
+eternax:
+  outbox.enabled: false
+  kafka.create-topics: false
+  resilience: { attempt-timeout: 300ms, max-attempts: 2 }
