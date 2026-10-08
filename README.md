@@ -3,8 +3,8 @@
 Spring starter used by every servlet-based eternaSync service, plus `eternax-test-support`.
 
 ```kotlin
-implementation("com.eternax:eternax-platform:0.1.0")
-testImplementation("com.eternax:eternax-test-support:0.1.0")
+implementation("com.eternax:eternax-platform:1.1.0")
+testImplementation("com.eternax:eternax-test-support:1.1.0")
 ```
 
 It pins `com.eternax:eternax-core` through `eternaxCoreVersion` in `gradle.properties`.
