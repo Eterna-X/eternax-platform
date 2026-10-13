@@ -13,11 +13,18 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /** Single place where exceptions become responses (LLD 13.4, table 5.4). */
 @RestControllerAdvice
@@ -70,6 +77,9 @@ public class GlobalExceptionHandler {
         HttpMessageNotReadableException.class,
         MethodArgumentTypeMismatchException.class,
         MissingRequestHeaderException.class,
+        MissingServletRequestParameterException.class,
+        MissingServletRequestPartException.class,
+        MultipartException.class,
         IllegalArgumentException.class
     })
     public ResponseEntity<ErrorResponse> handleBadRequest(Exception e) {
@@ -78,6 +88,57 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST,
                 ErrorCode.ING_2001_SCHEMA_VALIDATION_FAILED.name(),
                 "Malformed request: " + rootMessage(e),
+                List.of());
+    }
+
+    /** A client mistake about the protocol is never a server error (SEC-14b). */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMediaType(HttpMediaTypeNotSupportedException e) {
+        return body(
+                HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                ErrorCode.ING_2001_SCHEMA_VALIDATION_FAILED.name(),
+                "Unsupported content type. Supported: "
+                        + e.getSupportedMediaTypes().stream()
+                                .map(Object::toString)
+                                .collect(java.util.stream.Collectors.joining(", ")),
+                List.of());
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<ErrorResponse> handleNotAcceptable(
+            HttpMediaTypeNotAcceptableException e) {
+        return body(
+                HttpStatus.NOT_ACCEPTABLE,
+                ErrorCode.ING_2001_SCHEMA_VALIDATION_FAILED.name(),
+                "The requested response format is not available.",
+                List.of());
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethod(HttpRequestMethodNotSupportedException e) {
+        ResponseEntity<ErrorResponse> response =
+                body(
+                        HttpStatus.METHOD_NOT_ALLOWED,
+                        ErrorCode.ING_2001_SCHEMA_VALIDATION_FAILED.name(),
+                        "Method " + e.getMethod() + " is not allowed here.",
+                        List.of());
+        if (e.getSupportedHttpMethods() == null) {
+            return response;
+        }
+        return ResponseEntity.status(response.getStatusCode())
+                .headers(response.getHeaders())
+                .allow(
+                        e.getSupportedHttpMethods()
+                                .toArray(new org.springframework.http.HttpMethod[0]))
+                .body(response.getBody());
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResource(NoResourceFoundException e) {
+        return body(
+                HttpStatus.NOT_FOUND,
+                ErrorCode.PER_7002_ENTITY_NOT_FOUND.name(),
+                "No such resource.",
                 List.of());
     }
 

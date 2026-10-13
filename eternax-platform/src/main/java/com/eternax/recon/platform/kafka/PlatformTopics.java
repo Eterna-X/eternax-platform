@@ -34,6 +34,7 @@ public class PlatformTopics {
                         Topics.CASE_EVENTS,
                         Topics.ADJUSTMENT_EVENTS,
                         Topics.AUDIT_EVENTS,
+                        Topics.RECORD_REJECTIONS,
                         Topics.CLOSURE_EVENTS);
         var topics = new java.util.ArrayList<org.apache.kafka.clients.admin.NewTopic>();
         for (String name : regular) {

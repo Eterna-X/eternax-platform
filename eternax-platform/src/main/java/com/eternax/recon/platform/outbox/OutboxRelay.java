@@ -86,6 +86,16 @@ public class OutboxRelay {
                                                 rs.getString(6),
                                                 rs.getString(7)))
                         .list();
+        if (rows.isEmpty()) {
+            return 0;
+        }
+        // Send the whole batch, then wait for all acknowledgements once and mark the rows with one
+        // statement. Waiting for every record on its own costs a broker round trip (and the
+        // producer's linger) per record and capped throughput at a few hundred records a second.
+        // Order per key is kept: the producer is idempotent, so in-flight sends cannot be
+        // reordered.
+        List<java.util.concurrent.CompletableFuture<?>> pending =
+                new java.util.ArrayList<>(rows.size());
         for (Row row : rows) {
             ProducerRecord<String, String> record =
                     new ProducerRecord<>(row.topic(), row.key(), row.payload());
@@ -97,22 +107,25 @@ public class OutboxRelay {
                 record.headers()
                         .add("correlationId", row.correlation().getBytes(StandardCharsets.UTF_8));
             }
-            try {
-                kafka.send(record).get(10, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException(
-                        "interrupted while publishing outbox row " + row.id(), e);
-            } catch (Exception e) {
-                // Throwing rolls back this batch's "sent" marks; earlier rows are re-published,
-                // which is safe.
-                throw new IllegalStateException("publishing outbox row " + row.id() + " failed", e);
-            }
-            jdbc.sql("UPDATE outbox_event SET sent_at = now() WHERE id = :id")
-                    .param("id", row.id())
-                    .update();
-            published.increment();
+            pending.add(kafka.send(record));
         }
+        try {
+            for (var future : pending) {
+                future.get(30, TimeUnit.SECONDS);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while publishing an outbox batch", e);
+        } catch (Exception e) {
+            // Throwing rolls back the "sent" marks; the batch is published again, which is safe
+            // because every consumer is idempotent.
+            throw new IllegalStateException(
+                    "publishing an outbox batch of " + rows.size() + " failed", e);
+        }
+        jdbc.sql("UPDATE outbox_event SET sent_at = now() WHERE id IN (:ids)")
+                .param("ids", rows.stream().map(Row::id).toList())
+                .update();
+        published.increment(rows.size());
         return rows.size();
     }
 

@@ -1,6 +1,7 @@
 package com.eternax.recon.platform;
 
 import com.eternax.recon.platform.audit.AuditPublisher;
+import com.eternax.recon.platform.context.InternalAuth;
 import com.eternax.recon.platform.context.RequestContextFilter;
 import com.eternax.recon.platform.idempotency.IdempotencyService;
 import com.eternax.recon.platform.kafka.EventCodec;
@@ -50,11 +51,29 @@ public class PlatformAutoConfiguration {
         return Clock.systemUTC();
     }
 
+    /** Signs and verifies the gateway-written identity headers (SEC-11). */
+    @Bean
+    public InternalAuth internalAuth(
+            @Value("${eternax.security.internal-secret:}") String secret, Clock clock) {
+        if (secret == null || secret.isBlank()) {
+            org.slf4j.LoggerFactory.getLogger(PlatformAutoConfiguration.class)
+                    .warn(
+                            "eternax.security.internal-secret is not set: identity headers are"
+                                    + " trusted without a gateway signature. Development only.");
+        } else if (secret.length() < 32) {
+            throw new IllegalStateException(
+                    "eternax.security.internal-secret (INTERNAL_AUTH_SECRET) must be at least 32"
+                            + " characters");
+        }
+        return new InternalAuth(secret, clock);
+    }
+
     @Bean
     public FilterRegistrationBean<RequestContextFilter> eternaxRequestContextFilter(
-            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver) {
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver,
+            InternalAuth internalAuth) {
         FilterRegistrationBean<RequestContextFilter> registration =
-                new FilterRegistrationBean<>(new RequestContextFilter(resolver));
+                new FilterRegistrationBean<>(new RequestContextFilter(resolver, internalAuth));
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
         return registration;
     }
@@ -125,7 +144,7 @@ public class PlatformAutoConfiguration {
             KafkaTemplate<String, String> kafka,
             PlatformTransactionManager tm,
             MeterRegistry meters,
-            @Value("${eternax.outbox.batch-size:200}") int batchSize) {
+            @Value("${eternax.outbox.batch-size:500}") int batchSize) {
         return new OutboxRelay(jdbc, kafka, new TransactionTemplate(tm), meters, batchSize);
     }
 
