@@ -22,9 +22,16 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
 public final class RequestContextFilter extends OncePerRequestFilter {
 
     private final HandlerExceptionResolver exceptionResolver;
+    private final InternalAuth internalAuth;
 
     public RequestContextFilter(HandlerExceptionResolver exceptionResolver) {
+        this(exceptionResolver, new InternalAuth(null, java.time.Clock.systemUTC()));
+    }
+
+    public RequestContextFilter(
+            HandlerExceptionResolver exceptionResolver, InternalAuth internalAuth) {
         this.exceptionResolver = exceptionResolver;
+        this.internalAuth = internalAuth;
     }
 
     @Override
@@ -43,6 +50,9 @@ public final class RequestContextFilter extends OncePerRequestFilter {
         response.setHeader(RequestContext.CORRELATION_HEADER, correlationId);
         MDC.put("correlationId", correlationId);
         try {
+            if (!internalAuth.verify(request)) {
+                throw new UntrustedCallerException();
+            }
             String tenant = require(request, RequestContext.TENANT_HEADER);
             String user = require(request, RequestContext.USER_HEADER);
             String rolesHeader = request.getHeader(RequestContext.ROLES_HEADER);
@@ -57,7 +67,7 @@ public final class RequestContextFilter extends OncePerRequestFilter {
             MDC.put("tenantId", tenant);
             MDC.put("userId", user);
             chain.doFilter(request, response);
-        } catch (MissingRequestContextException e) {
+        } catch (MissingRequestContextException | UntrustedCallerException e) {
             exceptionResolver.resolveException(request, response, null, e);
         } finally {
             RequestContextHolder.clear();
