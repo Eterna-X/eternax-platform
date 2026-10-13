@@ -144,7 +144,7 @@ public class PlatformAutoConfiguration {
             KafkaTemplate<String, String> kafka,
             PlatformTransactionManager tm,
             MeterRegistry meters,
-            @Value("${eternax.outbox.batch-size:200}") int batchSize) {
+            @Value("${eternax.outbox.batch-size:500}") int batchSize) {
         return new OutboxRelay(jdbc, kafka, new TransactionTemplate(tm), meters, batchSize);
     }
 
